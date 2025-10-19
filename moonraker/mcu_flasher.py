@@ -1,6 +1,8 @@
 from __future__ import annotations
 import logging
 import os
+import shutil
+import subprocess
 
 # Annotation imports
 from typing import (
@@ -54,14 +56,31 @@ class Mcu:
         self.server = config.get_server()
         self.name: str = name
         self.klipper_path = klipper_path
-        self.kconfig: str = config.get('kconfig')
+        self.kconfig: str = config.get('kconfig').strip()
         self.flash_cmd: str = config.get('flash_cmd')
         self.silent: bool = config.get('silent', False)
     def _make_kconfig(self, kconfig_filename):
         try:
-            with open(kconfig_filename, 'w') as f:
-                f.write(self.kconfig)
-        except:
+            src = os.path.expanduser(self.kconfig)
+            if not os.path.isabs(src):
+                src = os.path.join(self.klipper_path, src)
+            if os.path.isfile(src):
+                shutil.copy(src, kconfig_filename)
+            else:
+                tmp = os.path.join(self.klipper_path, ".defconfig.tmp")
+                with open(tmp, "w") as f:
+                    f.write(self.kconfig)
+                shutil.copy(tmp, kconfig_filename)
+            env = os.environ.copy()
+            env["KCONFIG_CONFIG"] = kconfig_filename
+            kconf_script = os.path.join(self.klipper_path, "lib", "kconfiglib", "olddefconfig.py")
+            kconfig_src   = os.path.join(self.klipper_path, "src", "Kconfig")
+            subprocess.check_call(
+                ["python3", kconf_script, kconfig_src],
+                cwd=self.klipper_path,
+                env=env
+            )
+        except Exception:
             logging.exception("Failed to write kconfig file")
             raise self.server.error("Error writing kconfig file")
     def _log(self, msg: str, prefix: Literal['//', '!!'] = '//'):
